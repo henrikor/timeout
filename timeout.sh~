@@ -1,4 +1,0 @@
-#!/bin/bash
-
-echo timeout: $1
-afplay cow.mp3
