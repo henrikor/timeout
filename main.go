@@ -90,8 +90,17 @@ func doTheSounds(sec int) {
 	<-readyChan
 
 	x := sec - 30
-	biiip := "./beep-01a.mp3"
-	cow := "./cow.mp3"
+
+	path := "./"
+	if os.Getenv("TIMEOUT_PATH") != "" {
+		path = os.Getenv("TIMEOUT_PATH")
+	}
+
+	if !strings.HasSuffix(path, "/") {
+		path = path + "/"
+	}
+	biiip := path + "beep-01a.mp3"
+	cow := path + "cow.mp3"
 
 	time.Sleep(time.Duration(x) * time.Second)
 	playFile(biiip, otoCtx, err)
