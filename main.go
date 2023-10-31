@@ -5,83 +5,53 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ebitengine/oto/v3"
 	"github.com/gookit/color"
-	"github.com/gosuri/uiprogress"
 	"github.com/hajimehoshi/go-mp3"
+	"golang.org/x/crypto/ssh/terminal"
+
+	"atomicgo.dev/cursor"
+	"github.com/hedzr/progressbar"
 )
 
-func main() {
-	args := os.Args
-	a := os.Args[1]
+var whichStepper = 1
+var count = 0
 
-	// Hvis ingen argumenter er gitt, skriv ut en melding
-	if len(args) == 1 {
-		fmt.Println("Ingen argumenter ble gitt.")
-		os.Exit(1)
+func forAllSteppers(barwait int) {
+	tasks := progressbar.NewTasks(progressbar.New())
+	defer tasks.Close()
+
+	max := count
+	_, h, _ := terminal.GetSize(int(os.Stdout.Fd()))
+	if max >= h {
+		max = h
 	}
 
-	fmt.Println("Arg1: " + a)
-
-	var sec int
-	konvfeil := "Feil ved konvertering: "
-
-	if strings.Contains(a, ":") {
-		parts := strings.Split(a, ":")
-		m := parts[0]
-		s := parts[1]
-
-		fmt.Println("min: " + m + " sec: " + s)
-		min, err := strconv.Atoi(m)
-		if err != nil {
-			log.Fatal(konvfeil, err)
-		}
-		se, err := strconv.Atoi(s)
-		if err != nil {
-			log.Fatal(konvfeil, err)
-		}
-
-		sec = min*60 + se
-	} else {
-		var err error
-		sec, err = strconv.Atoi(a)
-		if err != nil {
-			log.Fatal(konvfeil, err)
-		}
-
+	for i := whichStepper; i < whichStepper+max; i++ {
+		tasks.Add(
+			progressbar.WithTaskAddBarOptions(
+				progressbar.WithBarStepper(i),
+				progressbar.WithBarUpperBound(100),
+				progressbar.WithBarWidth(64),
+				// progressbar.WithBarTextSchema(schema),
+			),
+			progressbar.WithTaskAddBarTitle(string(strconv.AppendInt([]byte("Task "), int64(i), 10))), // fmt.Sprintf("Task %v", i)),
+			progressbar.WithTaskAddOnTaskProgressing(func(bar progressbar.PB, exitCh <-chan struct{}) {
+				for ub, ix := bar.UpperBound(), int64(0); ix < ub; ix++ {
+					ms := time.Duration(barwait) //nolint:gosec //just a demo
+					time.Sleep(time.Millisecond * ms * 10)
+					bar.Step(1)
+				}
+			}),
+		)
 	}
 
-	fmt.Println("Sec totalt: ", sec)
-
-	if sec < 30 {
-		color.Errorln("Number of seconds must be more then 30 seconds, I got only %d seconds", sec)
-		os.Exit(1)
-	}
-	// It might take a bit for the hardware audio devices to be ready, so we wait on the channel.
-	go doTheSounds(sec)
-
-	barwait := sec + 7
-	// if sec < 40 {
-	// } else {
-	// 	barwait = sec
-	// }
-
-	// //////////////////////////////
-	uiprogress.Start()                // start rendering
-	bar := uiprogress.AddBar(barwait) // Add a new bar
-
-	// optionally, append and prepend completion and elapsed time
-	bar.AppendCompleted()
-	bar.PrependElapsed()
-
-	for bar.Incr() {
-		time.Sleep(time.Second * 1)
-	} ////////////////////////////////
-
+	tasks.Wait() // start waiting for all tasks completed gracefully
 }
 
 func doTheSounds(sec int) {
@@ -154,4 +124,75 @@ func mkDecodeMp3(file string) *mp3.Decoder {
 		panic("mp3.NewDecoder failed: " + err.Error())
 	}
 	return decodedMp3
+}
+func main() {
+	args := os.Args
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		for sig := range c {
+			fmt.Println("Got signal: ", sig)
+			cursor.Show()
+			os.Exit(0)
+		}
+	}()
+	// Hvis ingen argumenter er gitt, skriv ut en melding
+	if len(args) == 1 {
+		fmt.Println("Ingen argumenter ble gitt.")
+		fmt.Println("Oppgi antall sekunder, eller minutter:sekunder")
+		fmt.Println("Eks:")
+		fmt.Println("  timeout 30")
+		fmt.Println("  timeout 2:00")
+		os.Exit(1)
+	}
+	a := os.Args[1]
+
+	fmt.Println("Arg1: " + a)
+
+	var sec int
+	konvfeil := "Feil ved konvertering: "
+
+	if strings.Contains(a, ":") {
+		parts := strings.Split(a, ":")
+		m := parts[0]
+		s := parts[1]
+
+		fmt.Println("min: " + m + " sec: " + s)
+		min, err := strconv.Atoi(m)
+		if err != nil {
+			log.Fatal(konvfeil, err)
+		}
+		se, err := strconv.Atoi(s)
+		if err != nil {
+			log.Fatal(konvfeil, err)
+		}
+
+		sec = min*60 + se
+	} else {
+		var err error
+		sec, err = strconv.Atoi(a)
+		if err != nil {
+			log.Fatal(konvfeil, err)
+		}
+
+	}
+
+	fmt.Println("Sec totalt: ", sec)
+
+	if sec < 30 {
+		color.Errorln("Number of seconds must be more then 30 seconds, I got only %d seconds", sec)
+		os.Exit(1)
+	}
+	// It might take a bit for the hardware audio devices to be ready, so we wait on the channel.
+	go doTheSounds(sec)
+
+	barwait := sec + 7
+
+	cursor.Hide()
+	defer cursor.Show()
+
+	count = 1
+	whichStepper = 1
+	forAllSteppers(barwait)
 }
